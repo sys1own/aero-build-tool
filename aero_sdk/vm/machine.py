@@ -11,6 +11,7 @@ Architecture:
     - Program counter per frame
 """
 
+import json
 import os
 
 from dataclasses import dataclass, field
@@ -55,10 +56,12 @@ class AeroVM:
         # compiled Aero function.  Additional natives can be registered at
         # runtime via ``register_native``.
         self.native_functions: Dict[str, Callable] = {
-            "print":      self._native_print,
-            "create_dir":  self._native_create_dir,
-            "write_file":  self._native_write_file,
-            "read_file":   self._native_read_file,
+            "print":          self._native_print,
+            "create_dir":     self._native_create_dir,
+            "write_file":     self._native_write_file,
+            "read_file":      self._native_read_file,
+            "compile_source": self._native_compile_source,
+            "save_binary":    self._native_save_binary,
         }
 
     @property
@@ -256,3 +259,65 @@ class AeroVM:
         path = str(args[0])
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
+
+    # ── Compiler Pipeline Natives ─────────────────────────────────────────
+
+    def _native_compile_source(self, args: List[Any]) -> CompiledProgram:
+        """Compile an Aero source string through lexer → parser → codegen."""
+        if len(args) != 1:
+            raise VMError("compile_source() takes exactly 1 argument")
+        source = str(args[0])
+        from aero_sdk.compiler.lexer import tokenize
+        from aero_sdk.compiler.parser import Parser
+        from aero_sdk.compiler.codegen import Codegen
+        tokens = tokenize(source)
+        ast = Parser(tokens).parse()
+        return Codegen().compile(ast)
+
+    def _native_save_binary(self, args: List[Any]) -> int:
+        """Serialize a CompiledProgram to a wrapped .aeroc binary on disk."""
+        if len(args) != 2:
+            raise VMError("save_binary() takes exactly 2 arguments")
+        path, bytecode_obj = str(args[0]), args[1]
+        if not isinstance(bytecode_obj, CompiledProgram):
+            raise VMError(
+                f"save_binary() arg 2 must be a CompiledProgram, got {type(bytecode_obj).__name__}"
+            )
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        payload = _serialize_program(bytecode_obj)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        return 0
+
+
+# ── Serialization helpers ─────────────────────────────────────────────────
+
+def _serialize_instruction(instr: tuple) -> list:
+    """Convert a bytecode instruction tuple to a JSON-safe list."""
+    out: List[Any] = []
+    for item in instr:
+        if isinstance(item, OpCode):
+            out.append(item.name)
+        else:
+            out.append(item)
+    return out
+
+
+def _serialize_program(prog: CompiledProgram) -> dict:
+    """Convert a CompiledProgram to a JSON-serializable dict."""
+    return {
+        "format": "aeroc",
+        "version": 1,
+        "main_code": [_serialize_instruction(i) for i in prog.main_code],
+        "functions": [
+            {
+                "name": fn.name,
+                "params": list(fn.params),
+                "code": [_serialize_instruction(i) for i in fn.code],
+            }
+            for fn in prog.functions
+        ],
+        "constants": list(prog.constants),
+    }
