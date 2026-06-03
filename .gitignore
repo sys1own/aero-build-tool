@@ -1,0 +1,10 @@
+# Self-replication sandbox — never commit generated stage-1 output.
+# Populated by `python aero.py build`; safe to delete and regenerate.
+build_sandbox/
+
+# Python bytecode caches (created when running the toolchain).
+__pycache__/
+*.py[cod]
+
+# Compiled Aero bytecode artifacts.
+*.aeroc
