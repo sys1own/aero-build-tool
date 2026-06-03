@@ -92,8 +92,8 @@ def run_evolution_pipeline():
             # D. INLINE REPOSITORY DEPLOYMENT (FORCE PUSH TO DEDICATED REVIEW BRANCH)
             print(f"  📤 Syncing updates directly to review branch '{target_branch}'...", flush=True)
             try:
-                subprocess.run(["git", "add", "config/language_spec.json", "aero_sdk/compiler/lexer.py"], capture_output=True)
-                subprocess.run(["git", "add", "aero_auto_sdk/config/language_spec.json", "aero_auto_sdk/aero_sdk/compiler/lexer.py"], capture_output=True)
+                subprocess.run(["git", "add", "-A"], capture_output=True)
+                print("  ✔ Blanket staging sweep active...")
                 
                 diff_check = subprocess.run(["git", "diff", "--cached", "--quiet"])
                 if diff_check.returncode != 0:
