@@ -1,0 +1,24 @@
+{
+  "description": "Canonical Aero language specification. This is the BASELINE source-of-truth for the lexer's language tables. The optimizer reads this file and writes experimental, frequency-tuned variants ONLY to build_sandbox/config/language_spec.json -- it never mutates this file.",
+  "language": "aero",
+  "version": 1,
+  "keywords": ["let", "fn", "if", "else", "while", "return"],
+  "booleans": ["true", "false"],
+  "operators": ["==", "!=", "<=", ">=", "&&", "||", "+", "-", "*", "/", "%", "=", "<", ">", "!"],
+  "punctuation": ["(", ")", "{", "}", ",", ";"],
+  "preference_levels": {
+    "==": 10, "!=": 10, "<=": 10, ">=": 10,
+    "&&": 9, "||": 9,
+    "!": 8,
+    "<": 7, ">": 7,
+    "*": 6, "/": 6, "%": 6,
+    "=": 5, "+": 5, "-": 5
+  },
+  "custom_errors": {
+    "@": "Unexpected character '@' - not a valid token",
+    "#": "Unexpected character '#' - not a valid token",
+    "$": "Unexpected character '$' - not a valid token",
+    "~": "Unexpected character '~' - not a valid token",
+    "`": "Unexpected character '`' - not a valid token"
+  }
+}

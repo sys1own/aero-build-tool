@@ -13,6 +13,7 @@ Architecture:
 
 import json
 import os
+import time
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -62,6 +63,7 @@ class AeroVM:
             "read_file":      self._native_read_file,
             "compile_source": self._native_compile_source,
             "save_binary":    self._native_save_binary,
+            "get_timestamp":  self._native_get_timestamp,
         }
 
     @property
@@ -259,6 +261,20 @@ class AeroVM:
         path = str(args[0])
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
+
+    def _native_get_timestamp(self, args: List[Any]) -> int:
+        """Return the current wall-clock time in integer milliseconds.
+
+        Aero scripts subtract two timestamps to measure execution durations
+        down to the millisecond, e.g.::
+
+            let t0 = get_timestamp();
+            // ... work ...
+            let elapsed_ms = get_timestamp() - t0;
+        """
+        if args:
+            raise VMError("get_timestamp() takes no arguments")
+        return int(time.time() * 1000)
 
     # ── Compiler Pipeline Natives ─────────────────────────────────────────
 

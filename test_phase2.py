@@ -194,6 +194,39 @@ def test_05_register_native():
 
 
 # ---------------------------------------------------------------------------
+# TEST 6: get_timestamp() — millisecond timing native
+# ---------------------------------------------------------------------------
+def test_06_get_timestamp():
+    """The get_timestamp() native exposes millisecond timing to Aero scripts."""
+    print("\n▶ TEST 6: get_timestamp() — Millisecond Timing Native")
+
+    source = '''
+let t0 = get_timestamp();
+let t1 = get_timestamp();
+print(t1 - t0);
+'''
+    tokens = tokenize(source)
+    ast = Parser(tokens).parse()
+    program = Codegen().compile(ast)
+    vm = AeroVM(program)
+    vm.run()
+
+    _check("get_timestamp" in vm.native_functions,
+           "get_timestamp registered in native FFI registry")
+    _check(len(vm.output) == 1,
+           f"VM produced one output line (got {len(vm.output)})")
+    if vm.output:
+        delta = int(vm.output[0])
+        _check(delta >= 0,
+               f"elapsed milliseconds is non-negative (got {delta})")
+
+    # A direct native call returns a plausible epoch-millisecond integer.
+    raw = vm.native_functions["get_timestamp"]([])
+    _check(isinstance(raw, int) and raw > 1_000_000_000_000,
+           f"get_timestamp() returns epoch milliseconds (got {raw!r})")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 def main():
@@ -210,6 +243,7 @@ def main():
         test_03_save_binary_via_vm(tmpdir)
         test_04_serialization_integrity()
         test_05_register_native()
+        test_06_get_timestamp()
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
