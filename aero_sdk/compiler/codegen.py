@@ -25,7 +25,7 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Any, List
 
-from compiler.parser import (
+from aero_sdk.compiler.parser import (
     Program, LetStmt, FnDecl, IfStmt, WhileStmt, ReturnStmt, ExprStmt,
     Binary, Unary, IntLiteral, FloatLiteral, StringLiteral, BoolLiteral,
     Identifier, Call,
