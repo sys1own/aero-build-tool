@@ -1,132 +1,264 @@
 # -*- coding: utf-8 -*-
+"""
+Aero Autonomous Optimizer — deterministic, test-gated, human-reviewed.
+=====================================================================
+
+This replaces the previous random-mutation loop. Each pass:
+
+  1. Re-derives a frequency-tuned language spec from the real Aero corpus
+     using ``aero_sdk.optimizer.analyzer`` — deterministically. The same
+     corpus always yields the same spec (no ``random`` involved), so the
+     result is reproducible and reviewable.
+  2. Promotes that spec into ``config/language_spec.json`` and regenerates
+     ``aero_sdk/compiler/lexer.py`` from it via the spec-driven generator
+     (``aero_sdk.optimizer.generator``). Only the language-tables block is
+     swapped; the proven scanning logic is untouched and the file is never
+     hand-edited. There is no runtime ``import`` of generated code.
+  3. Verifies the full compiler suite (``test_phase2.py``) stays green. If a
+     pass would break a single assertion, the change is reverted and nothing
+     is published.
+  4. Optionally (``--publish``) commits and pushes the verified result to a
+     dedicated automation branch for human review via pull request — NEVER
+     to the default branch.
+
+Because the optimization is deterministic, the loop *converges*: once a pass
+produces no change relative to the committed spec, there is nothing left to
+optimize and the loop exits early instead of churning.
+"""
+
+import argparse
 import os
-import sys
-import re
-import time
-import json
-import random
 import subprocess
+import sys
+import time
 
-def run_evolution_pipeline():
-    # A. Parse raw cadence duration values directly from the runner environment profile
-    cadence_str = os.environ.get('CADENCE', '10 minutes').lower()
-    digits = re.findall(r'\d+', cadence_str)
-    if 'hour' in cadence_str:
-        allocated_seconds = int(digits[0]) * 3600 if digits else 3600
-    else:
-        allocated_seconds = int(digits[0]) * 60 if digits else 600
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
-    start_epoch = time.time()
-    end_deadline = start_epoch + allocated_seconds
-    
-    print(f"[Aero Core] Starting un-capped loop framework.", flush=True)
-    print(f"[Aero Core] Allocated optimization budget: {allocated_seconds} seconds.", flush=True)
-    print(f"[Aero Core] Real-time streaming active. Pushes trigger after each green pass.\n", flush=True)
+from aero_sdk.optimizer import analyzer
+from aero_sdk.optimizer import generator
+from aero_sdk.optimizer import language_spec as spec_io
+
+CONFIG_SPEC = os.path.join(_HERE, "config", "language_spec.json")
+ROOT_LEXER = os.path.join(_HERE, "aero_sdk", "compiler", "lexer.py")
+TEST_SCRIPT = os.path.join(_HERE, "test_phase2.py")
+
+# Relative forms used for git staging (commands run with cwd=_HERE).
+_REL_SPEC = os.path.relpath(CONFIG_SPEC, _HERE)
+_REL_LEXER = os.path.relpath(ROOT_LEXER, _HERE)
+
+DEFAULT_AUTO_BRANCH = os.environ.get("AERO_AUTO_BRANCH", "aero-auto/evolution")
+# Branches the optimizer is structurally forbidden from publishing to.
+_PROTECTED_BRANCHES = {"main", "master", "trunk", "HEAD", ""}
+
+# Stale, non-deterministic markers left behind by the old random loop. We drop
+# them so the promoted spec is a clean, reproducible artifact.
+_NONDETERMINISTIC_KEYS = (
+    "_evolution_epoch_timestamp",
+    "_evolution_iteration_round",
+    "_active_generation_seed",
+)
+
+
+def _git(*args, check=False):
+    """Run a git command inside the SDK directory and capture its output."""
+    return subprocess.run(
+        ["git", *args], cwd=_HERE, check=check, capture_output=True, text=True
+    )
+
+
+def _derive_optimized_spec():
+    """Deterministically derive a frequency-tuned spec from the live corpus.
+
+    Returns ``(baseline_spec, optimized_spec, report)``.
+    """
+    baseline = spec_io.load_spec(CONFIG_SPEC)
+    corpus = analyzer.read_corpus(analyzer.default_corpus_paths(_HERE))
+    freq = analyzer.analyze_frequencies(baseline, corpus)
+    optimized, report = analyzer.optimize_spec(baseline, freq)
+    # Strip non-deterministic cruft so the artifact is reproducible.
+    for key in _NONDETERMINISTIC_KEYS:
+        optimized.pop(key, None)
+    return baseline, optimized, report
+
+
+def _spec_changed(baseline, optimized):
+    """True if promoting ``optimized`` would actually alter the committed spec."""
+    cleaned_baseline = {
+        k: v for k, v in baseline.items() if k not in _NONDETERMINISTIC_KEYS
+    }
+    return cleaned_baseline != optimized
+
+
+def _apply_spec(spec):
+    """Promote ``spec`` to the root config and regenerate the root lexer.
+
+    Regeneration is build-time and deterministic: the generator reuses the
+    live lexer as a structural skeleton and swaps only the language-tables
+    block, preserving the 'DO NOT EDIT' provenance header and the scanner.
+    """
+    spec_io.dump_spec(spec, CONFIG_SPEC)
+    generator.render_lexer_file(spec, ROOT_LEXER, ROOT_LEXER)
+
+
+def _run_tests():
+    """Run the full compiler suite in a fresh interpreter (picks up new lexer)."""
+    proc = subprocess.run(
+        [sys.executable, TEST_SCRIPT], cwd=_HERE, capture_output=True, text=True
+    )
+    return proc.returncode == 0, proc.stdout, proc.stderr
+
+
+def _revert_root_artifacts():
+    """Restore the spec + lexer to their committed state after a failed pass."""
+    _git("checkout", "--", _REL_SPEC, _REL_LEXER)
+
+
+def _publish(branch):
+    """Commit the verified artifacts and push them to ``branch`` for review.
+
+    Hard safety rail: refuses to publish to any protected/default branch, and
+    only ever stages the two regenerated artifacts.
+    """
+    if branch in _PROTECTED_BRANCHES:
+        raise SystemExit(
+            f"refusing to publish to protected branch {branch!r} — "
+            "automation must target a review branch, not the default branch."
+        )
+
+    _git("add", _REL_SPEC, _REL_LEXER)
+    if _git("diff", "--cached", "--quiet").returncode == 0:
+        print("  · nothing staged to publish.", flush=True)
+        return False
+
+    commit = _git(
+        "-c", "user.name=aero-evolution-bot",
+        "-c", "user.email=aero-evolution-bot@users.noreply.github.com",
+        "commit", "-m",
+        "auto(sdk): deterministic frequency-tuned spec + regenerated lexer",
+    )
+    if commit.returncode != 0:
+        raise SystemExit(f"commit failed: {commit.stderr.strip()}")
+
+    delay = 2
+    push = None
+    for attempt in range(4):
+        push = _git("push", "origin", f"HEAD:{branch}")
+        if push.returncode == 0:
+            print(f"  ✅ Pushed verified optimization to review branch '{branch}'.",
+                  flush=True)
+            return True
+        print(f"  ⚠️ push attempt {attempt + 1} failed: {push.stderr.strip()}",
+              flush=True)
+        time.sleep(delay)
+        delay *= 2
+    raise SystemExit(
+        f"push to {branch!r} failed after retries: "
+        f"{push.stderr.strip() if push else 'unknown error'}"
+    )
+
+
+def optimize_once(publish, branch):
+    """Run a single deterministic, test-gated optimization pass.
+
+    Returns one of: 'converged', 'failed', 'changed', 'published'.
+    """
+    baseline, optimized, report = _derive_optimized_spec()
+
+    if not _spec_changed(baseline, optimized):
+        print("  ✔ Spec already optimal for the current corpus — converged.",
+              flush=True)
+        return "converged"
+
+    print("  • Deriving frequency-tuned spec from corpus...", flush=True)
+    if report.get("operators_reordered"):
+        print(f"      operators: {report['operators_before']}"
+              f"  ->  {report['operators_after']}", flush=True)
+
+    _apply_spec(optimized)
+    print("  • Regenerated lexer.py from spec (tables-only, deterministic).",
+          flush=True)
+
+    ok, out, err = _run_tests()
+    if not ok:
+        print("  ❌ Regenerated compiler failed verification — reverting.",
+              flush=True)
+        print(out, flush=True)
+        print(err, flush=True)
+        _revert_root_artifacts()
+        return "failed"
+
+    print("  🎉 Verification green — change is correctness-preserving.",
+          flush=True)
+    if publish:
+        _publish(branch)
+        return "published"
+
+    print("  · --publish not set; leaving verified change in the working tree.",
+          flush=True)
+    return "changed"
+
+
+def run_evolution_pipeline(soak_seconds, publish, branch, cooldown=5):
+    start = time.time()
+    deadline = start + max(0, soak_seconds)
+
+    print("[Aero Core] Deterministic, test-gated optimization loop.", flush=True)
+    print(f"[Aero Core] Soak budget: {soak_seconds}s | publish={publish} | "
+          f"branch={branch!r}", flush=True)
+    print("[Aero Core] Publishing (if enabled) targets a review branch only; "
+          "the default branch is never written.\n", flush=True)
 
     loop_round = 0
-    
-    while time.time() < end_deadline:
+    while True:
         loop_round += 1
-        seconds_left = int(end_deadline - time.time())
-        
-        print(f"\n🔥 ========================================================", flush=True)
-        print(f"🚀 GENERATION PASS #{loop_round} ({seconds_left}s remaining)", flush=True)
-        print(f"========================================================", flush=True)
+        print(f"\n=== Optimization pass #{loop_round} "
+              f"({int(deadline - time.time())}s remaining) ===", flush=True)
 
-        # B. DYNAMIC CODE GENERATION SECTION
-        # We autonomously construct/modify a physical code asset to inject optimized lookups
-        lookups_file_path = "optimized_lookups.py"
-        
-        # Generate varied unrolled fast-path routing matrices for optimization evaluation
-        random_seed_weight = random.randint(100, 999)
-        fast_path_tokens = ["let", "fn", "return", "if", "else", "while", "true", "false"]
-        random.shuffle(fast_path_tokens)
-        
-        generated_code_payload = f"""# -*- coding: utf-8 -*-
-# --- AUTONOMOUSLY GENERATED AERO COMPILER OPTIMIZATION ROUTINES ---
-# Generated during Pass #{loop_round} | Milestone Seed: {random_seed_weight}
-# This file provides fast-path lookup maps loaded by the tokenizer.
+        status = optimize_once(publish=publish, branch=branch)
 
-OPTIMIZED_FAST_PATHS = {fast_path_tokens}
-GENERATION_ROUND_ID = {loop_round}
-SEED_METRIC_WEIGHT = {random_seed_weight}
+        if status in ("converged", "failed"):
+            # Nothing left to do (or a failure we already reverted).
+            break
+        # A productive pass ('changed'/'published'); the next derive will be
+        # idempotent. Re-verify once more only if budget remains.
+        if time.time() + cooldown >= deadline:
+            break
+        time.sleep(cooldown)
+        if time.time() >= deadline:
+            break
 
-def check_fast_path(token_str):
-    return token_str in OPTIMIZED_FAST_PATHS
+    print("\n🏁 Optimization loop finished.", flush=True)
 
-def get_performance_routing_vector():
-    return [round(x * {random.random()}, 4) for x in range(5)]
-"""
-        
-        with open(lookups_file_path, "w") as f_code:
-            f_code.write(generated_code_payload)
-        print(f"  ✔ Generated new structural code module: {lookups_file_path}", flush=True)
 
-        # C. DYNAMIC SPECIFICATION CONFIGURATION UPDATE
-        spec_path = "config/language_spec.json" if os.path.exists("config/language_spec.json") else "aero_auto_sdk/config/language_spec.json"
-        if os.path.exists(spec_path):
-            try:
-                with open(spec_path, "r") as sf:
-                    spec_data = json.load(sf)
-                
-                # Fuzz operational weights to explore parsing gains
-                if "preference_levels" in spec_data:
-                    for op in spec_data["preference_levels"]:
-                        spec_data["preference_levels"][op] = random.randint(0, 100)
-                
-                spec_data["_evolution_epoch_timestamp"] = int(time.time() * 1000)
-                spec_data["_evolution_iteration_round"] = loop_round
-                spec_data["_active_generation_seed"] = random_seed_weight
-                
-                with open(spec_path, "w") as sf:
-                    json.dump(spec_data, sf, indent=2)
-                print("  ✔ Synchronized layout configuration data fields.", flush=True)
-            except Exception as e_spec:
-                print(f"  ⚠️ Warning writing layout parameters: {e_spec}", flush=True)
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="evolve",
+        description="Deterministic, test-gated Aero language-spec optimizer.",
+    )
+    parser.add_argument(
+        "--soak-seconds", type=int, default=600,
+        help="Upper bound on loop runtime (the loop converges well before this).",
+    )
+    parser.add_argument(
+        "--publish", action="store_true",
+        help="Commit + push verified gains to the automation review branch.",
+    )
+    parser.add_argument(
+        "--branch", default=DEFAULT_AUTO_BRANCH,
+        help=f"Review branch to publish to (default: {DEFAULT_AUTO_BRANCH!r}). "
+             "Protected/default branches are rejected.",
+    )
+    args = parser.parse_args(argv)
 
-        # D. VERIFY CODE CORRECTNESS VIA INTEGRATED TEST SUITE RUNNER
-        print("  🔬 Launching verification testing passes...", flush=True)
-        test_script = "test_phase2.py"
-        test_run = subprocess.run(["python", test_script], capture_output=True, text=True)
-        
-        if test_run.returncode == 0:
-            print("  🎉 PASS: Code modifications verified as 100% stable!", flush=True)
-            
-            # E. INLINE GIT DEPLOYMENT GATEWAY (PUSH IMMEDIATELY ON SUCCESS)
-            print("  📤 Initializing inline repository deployment tracking...", flush=True)
-            try:
-                # Stage files explicitly restricted to our isolated auto SDK scope
-                subprocess.run(["git", "add", "optimized_lookups.py"], check=True)
-                if os.path.exists("config/language_spec.json"):
-                    subprocess.run(["git", "add", "config/language_spec.json"], check=True)
-                
-                # Capture a silent diff baseline check to ensure safe commit executions
-                diff_check = subprocess.run(["git", "diff", "--cached", "--quiet"])
-                if diff_check.returncode != 0:
-                    commit_msg = f"auto(sdk): generation pass #{loop_round} cleared [seed: {random_seed_weight}]"
-                    subprocess.run(["git", "commit", "-m", commit_msg], check=True, capture_output=True)
-                    
-                    print("  🚀 Pushing verified updates live to GitHub main branch...", flush=True)
-                    push_run = subprocess.run(["git", "push", "origin", "HEAD:main"], capture_output=True, text=True)
-                    if push_run.returncode == 0:
-                        print(f"  ✅ SUCCESS: Pass #{loop_round} compiled and committed live upstream!", flush=True)
-                    else:
-                        print(f"  ⚠️ Push rejected (likely upstream race condition): {push_run.stderr.strip()}", flush=True)
-                        subprocess.run(["git", "reset", "--soft", "HEAD^"], capture_output=True) # Rollback local commit index
-                else:
-                    print("  横 Notice: No code structure tracking diff encountered.", flush=True)
-            except Exception as e_git:
-                print(f"  ❌ Git inline push error block encountered: {e_git}", flush=True)
-        else:
-            print("  ❌ FAIL: Code generation changes broke compiler constraints. Rolling back pass mutations...", flush=True)
-            print(test_run.stdout, flush=True)
-            print(test_run.stderr, flush=True)
+    run_evolution_pipeline(
+        soak_seconds=args.soak_seconds,
+        publish=args.publish,
+        branch=args.branch,
+    )
+    return 0
 
-        # F. COOLDOWN THROTTLE: Prevent high-frequency pipeline pinning
-        print("  ⏳ Soaking engine state registers for 5 seconds...", flush=True)
-        time.sleep(5)
 
-    print(f"\n🏁 Time budget exhausted. Multi-pass continuous execution finished cleanly.", flush=True)
-
-if __name__ == '__main__':
-    run_evolution_pipeline()
+if __name__ == "__main__":
+    sys.exit(main())

@@ -24,7 +24,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from aero_sdk.compiler.lexer import tokenize
+from aero_sdk.compiler.lexer import tokenize, TokenType
 from aero_sdk.compiler.parser import Parser
 from aero_sdk.compiler.codegen import Codegen, CompiledProgram, OpCode
 from aero_sdk.vm.machine import AeroVM, _serialize_program
@@ -227,6 +227,46 @@ print(t1 - t0);
 
 
 # ---------------------------------------------------------------------------
+# TEST 7: Token classification — keyword vs boolean vs identifier
+# ---------------------------------------------------------------------------
+def test_07_token_classification():
+    """Each word must receive the correct TokenType.
+
+    This is a correctness gate over token *semantics*, not just pipeline
+    plumbing: keywords must be KEYWORD, the boolean literals must stay
+    BOOL_LITERAL (NOT KEYWORD), and ordinary words must be IDENTIFIER.
+    It exists to catch any optimization that would fold 'true'/'false' into
+    the keyword set, which would silently break boolean handling downstream.
+    """
+    print("\n▶ TEST 7: Token Classification — Keyword / Boolean / Identifier")
+
+    source = "let fn if else while return true false foobar x_1 letter"
+    toks = [t for t in tokenize(source) if t.type != TokenType.EOF]
+    by_value = {t.value: t.type for t in toks}
+
+    for kw in ("let", "fn", "if", "else", "while", "return"):
+        _check(by_value.get(kw) == TokenType.KEYWORD,
+               f"'{kw}' classified as KEYWORD",
+               f"got {by_value.get(kw)}")
+
+    for lit in ("true", "false"):
+        _check(by_value.get(lit) == TokenType.BOOL_LITERAL,
+               f"'{lit}' classified as BOOL_LITERAL",
+               f"got {by_value.get(lit)}")
+
+    # Identifiers (including ones that merely *start* like keywords) stay IDENTIFIER.
+    for ident in ("foobar", "x_1", "letter"):
+        _check(by_value.get(ident) == TokenType.IDENTIFIER,
+               f"'{ident}' classified as IDENTIFIER",
+               f"got {by_value.get(ident)}")
+
+    # The exact regression an over-eager 'fast-path keyword' hook would introduce:
+    _check(by_value.get("true") != TokenType.KEYWORD
+           and by_value.get("false") != TokenType.KEYWORD,
+           "boolean literals are NOT misclassified as KEYWORD")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 def main():
@@ -244,6 +284,7 @@ def main():
         test_04_serialization_integrity()
         test_05_register_native()
         test_06_get_timestamp()
+        test_07_token_classification()
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
