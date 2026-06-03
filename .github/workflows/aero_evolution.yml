@@ -33,7 +33,6 @@ concurrency:
 jobs:
   evolve:
     runs-on: ubuntu-latest
-    # Lifted timeout ceiling to allow the 1-hour and 6-hour runs to finish completely
     timeout-minutes: 380
     
     steps:
@@ -41,13 +40,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
-          # Authenticates using your Personal Access Token to allow continuous run chaining
           token: ${{ secrets.AERO_PAT }}
 
       - name: 🐍 Set up Python Execution Environment
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: 🔐 Pre-Flight Git Write Access Canary Check
+        run: |
+          set -euo pipefail
+          echo "🌐 Checking push credentials before running optimization loops..."
+          git config user.name  "aero-evolution-bot"
+          git config user.email "aero-evolution-bot@users.noreply.github.com"
+          
+          # Write a small canary timestamp file to verify permissions instantly
+          mkdir -p aero_auto_sdk/config
+          echo "{\"canary_timestamp\": $(date +%s)}" > aero_auto_sdk/config/canary.json
+          
+          git add aero_auto_sdk/config/canary.json
+          git commit -m "ci(canary): verify upstream repository write access permissions"
+          git push origin HEAD:main
+          echo "🎯 Canary verification passed! Write access confirmed in under 10 seconds."
 
       - name: 🏗️ Stage-0 self-replication build
         working-directory: aero_auto_sdk
@@ -57,6 +71,8 @@ jobs:
         working-directory: aero_auto_sdk
         env:
           CADENCE: ${{ github.event.inputs.cadence || '10 minutes' }}
+          # 👇 FORCES PYTHON TO LOG LIVE TELEMETRY LINE-BY-LINE INSTANTLY
+          PYTHONUNBUFFERED: "1"
         run: |
           case "$CADENCE" in
             "4 minutes")  SOAK=240 ;;
