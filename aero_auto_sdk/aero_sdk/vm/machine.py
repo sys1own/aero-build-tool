@@ -50,6 +50,9 @@ class AeroVM:
             "int": self._builtin_int,
         }
         self._output: List[str] = []
+        # --- VM TELEMETRY RUNTIME PROFILE TRACKER ---
+        self._opcode_profile_counts = {}
+        # --------------------------------------------
 
         # Native function registry (FFI bridge).
         # When an Aero script calls one of these names, the VM dispatches
@@ -86,6 +89,9 @@ class AeroVM:
             instr = frame.code[frame.pc]
             frame.pc += 1
             op = instr[0]
+            # Record opcode dispatch ticks live on the hot execution path
+            op_name = op.name if hasattr(op, 'name') else str(op)
+            self._opcode_profile_counts[op_name] = self._opcode_profile_counts.get(op_name, 0) + 1
 
             if op == OpCode.PUSH_INT:
                 self._push(instr[1])
@@ -188,11 +194,25 @@ class AeroVM:
             elif op == OpCode.POP:
                 self._pop()
             elif op == OpCode.HALT:
+                # Dump runtime profiling reports out to disk before closing the stack machine container
+                try:
+                    profile_dump_route = "config/vm_profile.json" if os.path.exists("config") else "aero_auto_sdk/config/vm_profile.json"
+                    with open(profile_dump_route, "w") as pf:
+                        json.dump(self._opcode_profile_counts, pf, indent=2)
+                except Exception:
+                    pass
                 return self._stack[-1] if self._stack else None
             else:
                 raise VMError(f"unknown opcode: {op}")
 
-        return self._stack[-1] if self._stack else None
+        # Dump runtime profiling reports out to disk before closing the stack machine container
+                try:
+                    profile_dump_route = "config/vm_profile.json" if os.path.exists("config") else "aero_auto_sdk/config/vm_profile.json"
+                    with open(profile_dump_route, "w") as pf:
+                        json.dump(self._opcode_profile_counts, pf, indent=2)
+                except Exception:
+                    pass
+                return self._stack[-1] if self._stack else None
 
     def _push(self, value: Any) -> None:
         if len(self._stack) >= self.MAX_STACK_SIZE:

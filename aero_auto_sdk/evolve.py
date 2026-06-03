@@ -104,6 +104,15 @@ def run_evolution_pipeline():
         
         if test_run.returncode == 0:
             print("  🎉 PASS: Regenerated compiler cleared all 43 semantic safety checks!", flush=True)
+            # Fetch and display runtime opcode telemetry data live on the streaming terminal loop
+            try:
+                prof_log = "config/vm_profile.json" if os.path.exists("config") else "aero_auto_sdk/config/vm_profile.json"
+                if os.path.exists(prof_log):
+                    with open(prof_log, "r") as pf:
+                        vm_metrics = json.load(pf)
+                    print(f"  📊 [VM Profile Telemetry] Active Opcode Dispatch Weights: {vm_metrics}", flush=True)
+            except Exception as e_prof:
+                print(f"  ⚠️ Telemetry fetch notice: {e_prof}", flush=True)
             
             print(f"  📤 Syncing updates directly to review branch '{target_branch}'...", flush=True)
             try:
