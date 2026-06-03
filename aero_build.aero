@@ -1,0 +1,43 @@
+// ============================================================
+// Aero Build Tool — Self-Hosted Build Script
+// ============================================================
+// This script recreates the core pipeline of the original
+// Universal Build Tool entirely in native Aero syntax.
+// It scaffolds project directories, reads source files,
+// compiles them through the embedded compiler, and emits
+// production-ready .aeroc runtime binaries.
+// ============================================================
+
+// -- Build Initialization --
+print("==================================================");
+print("  AERO BUILD TOOL — Self-Hosted Compilation Engine");
+print("==================================================");
+print("");
+
+// -- Scaffold project directory structure --
+print("[1/5] Scaffolding project directories...");
+create_dir("src");
+create_dir("bin");
+print("  -> src/ and bin/ directories ready.");
+
+// -- Read the project entry point --
+print("[2/5] Reading source entry point: src/app.aero");
+let source = read_file("src/app.aero");
+print("  -> Source loaded successfully.");
+
+// -- Compile source through the pipeline --
+print("[3/5] Compiling source through lexer -> parser -> codegen...");
+let bytecode = compile_source(source);
+print("  -> Compilation complete. Bytecode object generated.");
+
+// -- Emit runtime binary --
+print("[4/5] Writing runtime binary to bin/app.aeroc...");
+save_binary("bin/app.aeroc", bytecode);
+print("  -> Binary artifact emitted.");
+
+// -- Build complete --
+print("[5/5] Build finished.");
+print("");
+print("==================================================");
+print("  BUILD SUCCESSFUL — bin/app.aeroc is ready.");
+print("==================================================");
