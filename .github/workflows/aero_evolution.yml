@@ -1,0 +1,101 @@
+name: Aero Autonomous Evolution
+
+# Autonomously re-optimizes the Aero language data tables and publishes the
+# result back to `main` — but STRICTLY scoped to the aero_auto_sdk/ folder
+# and gated by the full compiler test suite.
+#
+# Deliberately NO `on: push` trigger: the bot's own commit must never
+# re-trigger this workflow (that would be a runaway loop).
+on:
+  workflow_dispatch:
+    inputs:
+      cadence:
+        description: "Optimization cadence (controls the bounded soak budget; GitHub's real cron floor is 5 min)"
+        type: choice
+        required: true
+        default: "10 minutes"
+        options:
+          - "4 minutes"
+          - "10 minutes"
+          - "20 minutes"
+          - "1 hour"
+          - "6 hours"
+  schedule:
+    # Autonomous cadence. GitHub Actions' minimum interval is 5 minutes and
+    # scheduled runs are best-effort, so "4 minutes" is not actually
+    # achievable here; every 6 hours is a sane, low-cost default.
+    - cron: "0 */6 * * *"
+
+# Write access is required for the autonomous push.
+permissions:
+  contents: write
+
+# Never let two evolution runs overlap (and never let a push retrigger work).
+concurrency:
+  group: aero-evolution
+  cancel-in-progress: false
+
+jobs:
+  evolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Stage-0 self-replication build
+        working-directory: aero_auto_sdk
+        run: python aero.py build
+
+      - name: Autonomous optimization pass (test-gated, telemetry to summary)
+        working-directory: aero_auto_sdk
+        env:
+          CADENCE: ${{ github.event.inputs.cadence || '10 minutes' }}
+        run: |
+          case "$CADENCE" in
+            "4 minutes")  SOAK=20 ;;
+            "10 minutes") SOAK=45 ;;
+            "20 minutes") SOAK=90 ;;
+            "1 hour")     SOAK=120 ;;
+            "6 hours")    SOAK=120 ;;
+            *)            SOAK=30 ;;
+          esac
+          echo "Selected cadence '$CADENCE' -> soak ${SOAK}s (hard-capped at 120s in evolve.py)"
+          python evolve.py --soak-seconds "$SOAK"
+
+      - name: Final compiler suite (must be green before any publish)
+        working-directory: aero_auto_sdk
+        run: python test_phase2.py
+
+      - name: Publish — commit & push STRICTLY scoped to aero_auto_sdk/
+        run: |
+          set -euo pipefail
+
+          # Stage ONLY the SDK data spec — the sole autonomous evolution target.
+          git add -- aero_auto_sdk/config/language_spec.json
+
+          if git diff --cached --quiet; then
+            echo "No optimization change to publish; nothing to commit."
+            exit 0
+          fi
+
+          # SAFETY RAIL: abort the push if ANY staged path escapes aero_auto_sdk/.
+          staged="$(git diff --cached --name-only)"
+          echo "Staged paths:"
+          echo "$staged"
+          if echo "$staged" | grep -vqE '^aero_auto_sdk/'; then
+            echo "::error::Refusing to push — staged changes escape aero_auto_sdk/."
+            exit 1
+          fi
+
+          git config user.name  "aero-evolution-bot"
+          git config user.email "aero-evolution-bot@users.noreply.github.com"
+          git commit -m "auto(sdk): optimize internal language data structures and intent generation layers"
+          git push origin HEAD:main
