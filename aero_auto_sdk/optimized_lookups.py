@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # --- AUTONOMOUSLY GENERATED AERO COMPILER OPTIMIZATION ROUTINES ---
-# Generated during Pass #27 | Milestone Seed: 300
+# Generated during Pass #28 | Milestone Seed: 771
 # This file provides fast-path lookup maps loaded by the tokenizer.
 
-OPTIMIZED_FAST_PATHS = ['return', 'else', 'if', 'false', 'true', 'fn', 'while', 'let']
-GENERATION_ROUND_ID = 27
-SEED_METRIC_WEIGHT = 300
+OPTIMIZED_FAST_PATHS = ['let', 'if', 'return', 'fn', 'false', 'true', 'else', 'while']
+GENERATION_ROUND_ID = 28
+SEED_METRIC_WEIGHT = 771
 
 def check_fast_path(token_str):
     return token_str in OPTIMIZED_FAST_PATHS
 
 def get_performance_routing_vector():
-    return [round(x * 0.4582226852295075, 4) for x in range(5)]
+    return [round(x * 0.599143594591838, 4) for x in range(5)]
