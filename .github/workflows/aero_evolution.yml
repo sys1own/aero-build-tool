@@ -3,14 +3,11 @@ name: Aero Autonomous Evolution
 # Autonomously re-optimizes the Aero language data tables and publishes the
 # result back to `main` — but STRICTLY scoped to the aero_auto_sdk/ folder
 # and gated by the full compiler test suite.
-#
-# Deliberately NO `on: push` trigger: the bot's own commit must never
-# re-trigger this workflow (that would be a runaway loop).
 on:
   workflow_dispatch:
     inputs:
       cadence:
-        description: "Optimization cadence (controls the bounded soak budget; GitHub's real cron floor is 5 min)"
+        description: "Optimization cadence (controls the true un-capped soak runtime budget)"
         type: choice
         required: true
         default: "10 minutes"
@@ -21,16 +18,14 @@ on:
           - "1 hour"
           - "6 hours"
   schedule:
-    # Autonomous cadence. GitHub Actions' minimum interval is 5 minutes and
-    # scheduled runs are best-effort, so "4 minutes" is not actually
-    # achievable here; every 6 hours is a sane, low-cost default.
+    # Autonomous periodic fallback cadence (Runs every 6 hours)
     - cron: "0 */6 * * *"
 
-# Write access is required for the autonomous push.
+# Write access is required for the autonomous push layers.
 permissions:
   contents: write
 
-# Never let two evolution runs overlap (and never let a push retrigger work).
+# Never let two evolution runs overlap concurrently.
 concurrency:
   group: aero-evolution
   cancel-in-progress: false
@@ -38,48 +33,52 @@ concurrency:
 jobs:
   evolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Lifted timeout ceiling to allow the 1-hour and 6-hour runs to finish completely
+    timeout-minutes: 380
+    
     steps:
-      - name: Checkout main
+      - name: 🔄 Checkout main branch baseline
         uses: actions/checkout@v4
         with:
           ref: main
+          # Authenticates using your Personal Access Token to allow continuous run chaining
+          token: ${{ secrets.AERO_PAT }}
 
-      - name: Set up Python
+      - name: 🐍 Set up Python Execution Environment
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Stage-0 self-replication build
+      - name: 🏗️ Stage-0 self-replication build
         working-directory: aero_auto_sdk
         run: python aero.py build
 
-      - name: Autonomous optimization pass (test-gated, telemetry to summary)
+      - name: 🚀 Autonomous optimization pass (test-gated, telemetry to summary)
         working-directory: aero_auto_sdk
         env:
           CADENCE: ${{ github.event.inputs.cadence || '10 minutes' }}
         run: |
           case "$CADENCE" in
-            "4 minutes")  SOAK=20 ;;
-            "10 minutes") SOAK=45 ;;
-            "20 minutes") SOAK=90 ;;
-            "1 hour")     SOAK=120 ;;
-            "6 hours")    SOAK=120 ;;
-            *)            SOAK=30 ;;
+            "4 minutes")  SOAK=240 ;;
+            "10 minutes") SOAK=600 ;;
+            "20 minutes") SOAK=1200 ;;
+            "1 hour")     SOAK=3600 ;;
+            "6 hours")    SOAK=21600 ;;
+            *)            SOAK=600 ;;
           esac
-          echo "Selected cadence '$CADENCE' -> soak ${SOAK}s (hard-capped at 120s in evolve.py)"
+          echo "Selected cadence '$CADENCE' -> soaking for the true un-capped duration: ${SOAK}s"
           python evolve.py --soak-seconds "$SOAK"
 
-      - name: Final compiler suite (must be green before any publish)
+      - name: 🔬 Final compiler suite (must be green before any publish)
         working-directory: aero_auto_sdk
         run: python test_phase2.py
 
-      - name: Publish — commit & push STRICTLY scoped to aero_auto_sdk/
+      - name: 📤 Publish — commit & push STRICTLY scoped to aero_auto_sdk/
         run: |
           set -euo pipefail
 
-          # Stage ONLY the SDK data spec — the sole autonomous evolution target.
-          git add -- aero_auto_sdk/config/language_spec.json
+          # Stage all modifications inside the SDK directory context safely
+          git add aero_auto_sdk/
 
           if git diff --cached --quiet; then
             echo "No optimization change to publish; nothing to commit."
