@@ -14,7 +14,7 @@ def run_evolution_pipeline():
     args = parser.parse_known_args()[0]
 
     # Calculate absolute deadlines using the incoming duration metrics
-    allocated_seconds = args.soak-seconds
+    allocated_seconds = args.soak_seconds
     if os.environ.get('CADENCE'):
         cadence_str = os.environ.get('CADENCE', '').lower()
         digits = re.findall(r'\d+', cadence_str)
