@@ -200,6 +200,11 @@ def _lower_task(task, variables):
         _require(task, "fn")
         return f"{f['fn'].strip()}({f.get('args', '').strip()});"
 
+    if op == "while":
+        _require(task, "condition", "body")
+        body_statements = "; ".join(line.strip() for line in f["body"].split(",") if line.strip()) + ";"
+        return f"while {f['condition'].strip()} {{ {body_statements} }}"
+
     if op == "func":
         _require(task, "name")
         params = ", ".join(p.strip() for p in f.get("params", "").split(",") if p.strip())
