@@ -37,9 +37,9 @@ class Token:
         self.column = column
 
 # ── Language Tables (generated from config/language_spec.json by aero_sdk.optimizer.generator) ──
-_KEYWORDS = {'let', 'return', 'fn', 'if', 'else', 'while'}
+_KEYWORDS = {'let', 'fn', 'return', 'else', 'if', 'while'}
 _BOOLEANS = {'true', 'false'}
-_OPERATORS = ['<=', '==', '!=', '>=', '&&', '||', '+', '=', '-', '*', '/', '%', '<', '>', '!']
+_OPERATORS = ['<=', '==', '!=', '>=', '&&', '||', '=', '+', '*', '-', '/', '%', '<', '>', '!']
 _PUNCTUATION = {'(', ')', '{', '}', ',', ';'}
 _CUSTOM_ERRORS = {'@': "Unexpected character '@' - not a valid token", '#': "Unexpected character '#' - not a valid token", '$': "Unexpected character '$' - not a valid token", '~': "Unexpected character '~' - not a valid token", '`': "Unexpected character '`' - not a valid token"}
 

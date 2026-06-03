@@ -5,15 +5,18 @@ Aero Autonomous Optimizer — deterministic, test-gated, human-reviewed.
 
 This replaces the previous random-mutation loop. Each pass:
 
-  1. Re-derives a frequency-tuned language spec from the real Aero corpus
-     using ``aero_sdk.optimizer.analyzer`` — deterministically. The same
-     corpus always yields the same spec (no ``random`` involved), so the
-     result is reproducible and reviewable.
-  2. Promotes that spec into ``config/language_spec.json`` and regenerates
-     ``aero_sdk/compiler/lexer.py`` from it via the spec-driven generator
-     (``aero_sdk.optimizer.generator``). Only the language-tables block is
-     swapped; the proven scanning logic is untouched and the file is never
-     hand-edited. There is no runtime ``import`` of generated code.
+  1. RECIPE ANALYSIS: lowers the declarative build recipe
+     (``sample_recipe.txt``) to ``.aero`` source via the meta-compiler and
+     measures token frequencies over it with ``aero_sdk.optimizer.analyzer``.
+     This is deterministic — the same recipe always yields the same spec (no
+     ``random`` involved), so the result is reproducible and reviewable.
+  2. SPEC TUNING + DETERMINISTIC REGENERATION: writes the frequency-tuned
+     ``operators`` order and ``preference_levels`` into
+     ``config/language_spec.json``, then runs the official bootstrap command
+     ``python aero.py build``, which regenerates ``aero_sdk/compiler/lexer.py``
+     from that spec. Only the language-tables block is swapped; the proven
+     scanning logic is untouched, the file is never hand-edited, and there is
+     no runtime ``import`` of generated code.
   3. Verifies the full compiler suite (``test_phase2.py``) stays green. If a
      pass would break a single assertion, the change is reverted and nothing
      is published.
@@ -36,13 +39,14 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+import meta_compiler
 from aero_sdk.optimizer import analyzer
-from aero_sdk.optimizer import generator
 from aero_sdk.optimizer import language_spec as spec_io
 
 CONFIG_SPEC = os.path.join(_HERE, "config", "language_spec.json")
 ROOT_LEXER = os.path.join(_HERE, "aero_sdk", "compiler", "lexer.py")
 TEST_SCRIPT = os.path.join(_HERE, "test_phase2.py")
+RECIPE_PATH = os.path.join(_HERE, "sample_recipe.txt")
 
 # Relative forms used for git staging (commands run with cwd=_HERE).
 _REL_SPEC = os.path.relpath(CONFIG_SPEC, _HERE)
@@ -68,13 +72,32 @@ def _git(*args, check=False):
     )
 
 
+def _recipe_corpus():
+    """Lower the declarative build recipe to .aero source for frequency tuning.
+
+    The recipe (``sample_recipe.txt``) describes the build as a set of tasks
+    keyed by operation (``print``, ``set``, ``func``, ``compute``, ``call``).
+    Lowering it through the meta-compiler yields the exact Aero source the
+    build actually compiles, so counting token frequencies over it tunes the
+    lexer for real usage. Falls back to the default code corpus if the recipe
+    is missing or cannot be lowered.
+    """
+    try:
+        recipe = meta_compiler.load_recipe(RECIPE_PATH)
+        return meta_compiler.generate_aero(recipe)
+    except Exception as exc:  # noqa: BLE001 — recipe is optional tuning input
+        print(f"  · recipe unavailable ({exc}); using default code corpus.",
+              flush=True)
+        return analyzer.read_corpus(analyzer.default_corpus_paths(_HERE))
+
+
 def _derive_optimized_spec():
-    """Deterministically derive a frequency-tuned spec from the live corpus.
+    """Deterministically derive a frequency-tuned spec from the build recipe.
 
     Returns ``(baseline_spec, optimized_spec, report)``.
     """
     baseline = spec_io.load_spec(CONFIG_SPEC)
-    corpus = analyzer.read_corpus(analyzer.default_corpus_paths(_HERE))
+    corpus = _recipe_corpus()
     freq = analyzer.analyze_frequencies(baseline, corpus)
     optimized, report = analyzer.optimize_spec(baseline, freq)
     # Strip non-deterministic cruft so the artifact is reproducible.
@@ -92,14 +115,24 @@ def _spec_changed(baseline, optimized):
 
 
 def _apply_spec(spec):
-    """Promote ``spec`` to the root config and regenerate the root lexer.
+    """Promote ``spec`` to the root config, then regenerate via the build chain.
 
-    Regeneration is build-time and deterministic: the generator reuses the
-    live lexer as a structural skeleton and swaps only the language-tables
-    block, preserving the 'DO NOT EDIT' provenance header and the scanner.
+    Writes the mutated spec to ``config/language_spec.json`` and invokes the
+    official bootstrap command ``python aero.py build``, which deterministically
+    regenerates ``lexer.py`` from that spec (tables-only; the scanner and the
+    'DO NOT EDIT' provenance header are preserved) and runs the self-replication
+    build. Because the build regenerates from the spec, the committed spec and
+    lexer can never drift apart.
     """
     spec_io.dump_spec(spec, CONFIG_SPEC)
-    generator.render_lexer_file(spec, ROOT_LEXER, ROOT_LEXER)
+    proc = subprocess.run(
+        [sys.executable, "aero.py", "build"],
+        cwd=_HERE, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"`aero.py build` failed during regeneration:\n{proc.stdout}\n{proc.stderr}"
+        )
 
 
 def _run_tests():

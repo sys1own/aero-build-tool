@@ -19,8 +19,32 @@ from aero_sdk.compiler.lexer import tokenize
 from aero_sdk.compiler.parser import Parser
 from aero_sdk.compiler.codegen import Codegen
 from aero_sdk.vm.machine import AeroVM
+from aero_sdk.optimizer import generator
+from aero_sdk.optimizer import language_spec as spec_io
 
 DEFAULT_BUILD_SCRIPT = os.path.join(_HERE, "aero_build.aero")
+CONFIG_SPEC = os.path.join(_HERE, "config", "language_spec.json")
+ROOT_LEXER = os.path.join(_HERE, "aero_sdk", "compiler", "lexer.py")
+
+
+def regenerate_lexer():
+    """Spec-driven compiler-compiler step: regenerate lexer.py from the spec.
+
+    Makes good on the lexer's documented contract — its language-tables block
+    is produced deterministically from ``config/language_spec.json``. Only the
+    tables are swapped; the proven scanning logic in the skeleton is preserved
+    (and the longest-match-first operator invariant is asserted by the
+    generator). The operation is idempotent: if the lexer already matches the
+    spec, the bytes are unchanged.
+
+    Returns True if regeneration ran, False if no spec was found (e.g. a
+    stripped-down sandbox copy), so the build can proceed regardless.
+    """
+    if not os.path.exists(CONFIG_SPEC):
+        return False
+    spec = spec_io.load_spec(CONFIG_SPEC)
+    generator.render_lexer_file(spec, ROOT_LEXER, ROOT_LEXER)
+    return True
 
 
 def _compile_and_run(script_path):
@@ -41,7 +65,9 @@ def _compile_and_run(script_path):
 
 
 def cmd_build(args):
-    """Compile and run the self-hosted Aero build script."""
+    """Regenerate the lexer from the spec, then run the self-hosted build."""
+    if regenerate_lexer():
+        print("aero: regenerated lexer.py from config/language_spec.json")
     script = args.script or DEFAULT_BUILD_SCRIPT
     return _compile_and_run(script)
 
