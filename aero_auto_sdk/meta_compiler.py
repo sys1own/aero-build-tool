@@ -202,7 +202,8 @@ def _lower_task(task, variables):
 
     if op == "while":
         _require(task, "condition", "body")
-        body_statements = "; ".join(line.strip() for line in f["body"].split(",") if line.strip()) + ";"
+        # Upgraded block compiler: handles clean newlines and optional semicolons inside INI task blocks
+        body_statements = "; ".join(line.strip().rstrip(';') for line in re.split(r'[\n;]+', f["body"]) if line.strip()) + ";"
         return f"while {f['condition'].strip()} {{ {body_statements} }}"
 
     if op == "func":
