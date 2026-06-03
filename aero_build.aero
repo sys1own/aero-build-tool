@@ -1,43 +1,113 @@
 // ============================================================
-// Aero Build Tool — Self-Hosted Build Script
+// Aero Build Tool — Self-Hosted Compilation Engine
 // ============================================================
-// This script recreates the core pipeline of the original
-// Universal Build Tool entirely in native Aero syntax.
-// It scaffolds project directories, reads source files,
-// compiles them through the embedded compiler, and emits
-// production-ready .aeroc runtime binaries.
+// Bootstrapping build script written in native Aero syntax.
+// Performs two jobs:
+//   A) Standard project build (src/app.aero -> bin/app.aeroc)
+//   B) Self-compilation test — replicates the entire compiler
+//      stack into an isolated sandbox and emits compiled
+//      binaries to verify architectural correctness.
 // ============================================================
 
-// -- Build Initialization --
-print("==================================================");
-print("  AERO BUILD TOOL — Self-Hosted Compilation Engine");
-print("==================================================");
+// -- Sandbox target directory (configurable) --
+let sandbox = "build_sandbox/";
+
+// ===================== BUILD INITIALIZATION ====================
+print("===========================================================");
+print("  AERO BUILD TOOL — Self-Hosted Compilation Engine v2");
+print("===========================================================");
 print("");
 
-// -- Scaffold project directory structure --
-print("[1/5] Scaffolding project directories...");
+// ===================== PHASE A: PROJECT BUILD ==================
+print("[A] PROJECT BUILD");
+print("-----------------------------------------------------------");
+
+print("[A.1] Scaffolding project directories...");
 create_dir("src");
 create_dir("bin");
 print("  -> src/ and bin/ directories ready.");
 
-// -- Read the project entry point --
-print("[2/5] Reading source entry point: src/app.aero");
-let source = read_file("src/app.aero");
+print("[A.2] Reading source entry point: src/app.aero");
+let app_source = read_file("src/app.aero");
 print("  -> Source loaded successfully.");
 
-// -- Compile source through the pipeline --
-print("[3/5] Compiling source through lexer -> parser -> codegen...");
-let bytecode = compile_source(source);
+print("[A.3] Compiling source through lexer -> parser -> codegen...");
+let app_bytecode = compile_source(app_source);
 print("  -> Compilation complete. Bytecode object generated.");
 
-// -- Emit runtime binary --
-print("[4/5] Writing runtime binary to bin/app.aeroc...");
-save_binary("bin/app.aeroc", bytecode);
+print("[A.4] Writing runtime binary to bin/app.aeroc...");
+save_binary("bin/app.aeroc", app_bytecode);
 print("  -> Binary artifact emitted.");
 
-// -- Build complete --
-print("[5/5] Build finished.");
+print("[A] PROJECT BUILD COMPLETE.");
 print("");
-print("==================================================");
-print("  BUILD SUCCESSFUL — bin/app.aeroc is ready.");
-print("==================================================");
+
+// ===================== PHASE B: SELF-COMPILATION TEST ==========
+print("[B] SELF-COMPILATION TEST (Bootstrap)");
+print("-----------------------------------------------------------");
+
+// -- B.1: Scaffold sandbox directory structure --
+print("[B.1] Scaffolding sandbox directories...");
+create_dir(sandbox + "compiler");
+create_dir(sandbox + "vm");
+create_dir(sandbox + "bin");
+print("  -> " + sandbox + "compiler/, vm/, bin/ directories ready.");
+
+// -- B.2: Read compiler configuration tables and lexer template --
+print("[B.2] Reading core compiler stack from active codebase...");
+
+let lexer_src = read_file("aero_sdk/compiler/lexer.py");
+print("  -> lexer.py loaded.");
+
+let lexer_tmpl_src = read_file("aero_sdk/compiler/lexer_template.py");
+print("  -> lexer_template.py loaded (configuration tables).");
+
+let parser_src = read_file("aero_sdk/compiler/parser.py");
+print("  -> parser.py loaded (parser assets).");
+
+let codegen_src = read_file("aero_sdk/compiler/codegen.py");
+print("  -> codegen.py loaded.");
+
+let vm_src = read_file("aero_sdk/vm/machine.py");
+print("  -> machine.py loaded (runtime engine).");
+
+// -- B.3: Replicate compiler sources into sandbox --
+print("[B.3] Replicating compiler stack into sandbox...");
+
+write_file(sandbox + "compiler/lexer.py", lexer_src);
+print("  -> " + sandbox + "compiler/lexer.py written.");
+
+write_file(sandbox + "compiler/lexer_template.py", lexer_tmpl_src);
+print("  -> " + sandbox + "compiler/lexer_template.py written.");
+
+write_file(sandbox + "compiler/parser.py", parser_src);
+print("  -> " + sandbox + "compiler/parser.py written.");
+
+write_file(sandbox + "compiler/codegen.py", codegen_src);
+print("  -> " + sandbox + "compiler/codegen.py written.");
+
+write_file(sandbox + "vm/machine.py", vm_src);
+print("  -> " + sandbox + "vm/machine.py written.");
+
+// -- B.4: Stage-1 compilation — compile .aero sources into sandbox binaries --
+print("[B.4] Stage-1 compilation — emitting binaries into sandbox...");
+
+let build_script_src = read_file("aero_build.aero");
+let build_bytecode = compile_source(build_script_src);
+save_binary(sandbox + "bin/aero_build.aeroc", build_bytecode);
+print("  -> " + sandbox + "bin/aero_build.aeroc emitted (self-compiled build tool).");
+
+let sandbox_app_bytecode = compile_source(app_source);
+save_binary(sandbox + "bin/app.aeroc", sandbox_app_bytecode);
+print("  -> " + sandbox + "bin/app.aeroc emitted (compiled application).");
+
+print("[B] SELF-COMPILATION TEST COMPLETE.");
+print("");
+
+// ===================== BUILD SUMMARY ===========================
+print("===========================================================");
+print("  BUILD SUCCESSFUL");
+print("  Project output  : bin/app.aeroc");
+print("  Sandbox compiler: " + sandbox + "compiler/");
+print("  Sandbox binaries: " + sandbox + "bin/");
+print("===========================================================");

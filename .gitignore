@@ -1,0 +1,13 @@
+# Aero build sandbox — self-compilation test output
+build_sandbox/
+
+# Compiled bytecode output
+bin/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Build tool cache
+.ubt_cache.json
