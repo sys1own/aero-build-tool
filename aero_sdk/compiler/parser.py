@@ -13,7 +13,7 @@ Public contract (do not rename): ``Parser``, ``ParseError``, ``Program``,
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
-from compiler.lexer import TokenType
+from aero_sdk.compiler.lexer import TokenType
 
 
 class ParseError(Exception):

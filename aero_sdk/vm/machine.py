@@ -11,10 +11,12 @@ Architecture:
     - Program counter per frame
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List
+import os
 
-from compiler.codegen import CompiledProgram, CompiledFunction, OpCode
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
+
+from aero_sdk.compiler.codegen import CompiledProgram, CompiledFunction, OpCode
 
 
 @dataclass
@@ -46,6 +48,18 @@ class AeroVM:
             "int": self._builtin_int,
         }
         self._output: List[str] = []
+
+        # Native function registry (FFI bridge).
+        # When an Aero script calls one of these names, the VM dispatches
+        # directly to the host Python callable instead of looking up a
+        # compiled Aero function.  Additional natives can be registered at
+        # runtime via ``register_native``.
+        self.native_functions: Dict[str, Callable] = {
+            "print":      self._native_print,
+            "create_dir":  self._native_create_dir,
+            "write_file":  self._native_write_file,
+            "read_file":   self._native_read_file,
+        }
 
     @property
     def output(self) -> List[str]:
@@ -143,7 +157,10 @@ class AeroVM:
                 args = [self._pop() for _ in range(argc)]
                 args.reverse()
 
-                if isinstance(callee, str) and callee in self._builtins:
+                if isinstance(callee, str) and callee in self.native_functions:
+                    result = self.native_functions[callee](args)
+                    self._push(result if result is not None else 0)
+                elif isinstance(callee, str) and callee in self._builtins:
                     result = self._builtins[callee](args)
                     self._push(result)
                 elif isinstance(callee, str) and callee in self._fn_table:
@@ -198,3 +215,44 @@ class AeroVM:
         if len(args) != 1:
             raise VMError("int() takes exactly 1 argument")
         return int(args[0])
+
+    # ── Native FFI Primitives (system call bridge) ────────────────────────
+
+    def register_native(self, name: str, func: Callable) -> None:
+        """Register a host-side callable so Aero scripts can invoke it by name."""
+        self.native_functions[name] = func
+
+    def _native_print(self, args: List[Any]) -> None:
+        """Output build statuses cleanly to the console."""
+        text = " ".join(str(a) for a in args)
+        self._output.append(text)
+        print(text)
+        return None
+
+    def _native_create_dir(self, args: List[Any]) -> int:
+        """Programmatically create a new project directory folder."""
+        if len(args) != 1:
+            raise VMError("create_dir() takes exactly 1 argument")
+        path = str(args[0])
+        os.makedirs(path, exist_ok=True)
+        return 0
+
+    def _native_write_file(self, args: List[Any]) -> int:
+        """Write a code file string or compiled binary payload out to disk."""
+        if len(args) != 2:
+            raise VMError("write_file() takes exactly 2 arguments")
+        path, content = str(args[0]), str(args[1])
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return 0
+
+    def _native_read_file(self, args: List[Any]) -> str:
+        """Read a local script file's contents into a string block."""
+        if len(args) != 1:
+            raise VMError("read_file() takes exactly 1 argument")
+        path = str(args[0])
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
