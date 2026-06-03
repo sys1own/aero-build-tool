@@ -40,21 +40,21 @@
     ";"
   ],
   "preference_levels": {
-    "==": 26,
-    "!=": 17,
-    "<=": 6,
-    ">=": 15,
-    "&&": 90,
-    "||": 32,
-    "+": 95,
-    "-": 19,
-    "*": 76,
-    "/": 56,
-    "%": 19,
-    "=": 19,
-    "<": 91,
-    ">": 23,
-    "!": 2
+    "==": 58,
+    "!=": 35,
+    "<=": 74,
+    ">=": 78,
+    "&&": 31,
+    "||": 71,
+    "+": 84,
+    "-": 6,
+    "*": 19,
+    "/": 94,
+    "%": 76,
+    "=": 17,
+    "<": 56,
+    ">": 55,
+    "!": 90
   },
   "custom_errors": {
     "@": "Unexpected character '@' - not a valid token",
@@ -63,7 +63,7 @@
     "~": "Unexpected character '~' - not a valid token",
     "`": "Unexpected character '`' - not a valid token"
   },
-  "_evolution_epoch_timestamp": 1780506100089,
-  "_evolution_iteration_round": 26,
-  "_active_generation_seed": 499
+  "_evolution_epoch_timestamp": 1780506105914,
+  "_evolution_iteration_round": 27,
+  "_active_generation_seed": 300
 }
