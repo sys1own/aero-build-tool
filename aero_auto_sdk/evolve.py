@@ -1,3 +1,19 @@
+
+# --- OVERRIDE AUTOMATION: Dynamic Cadence Runtime Tracker ---
+import os
+import re
+import time
+
+_cadence_str = os.environ.get('CADENCE', '10 minutes').lower()
+_minutes_match = re.findall(r'\d+', _cadence_str)
+if 'hour' in _cadence_str:
+    _total_seconds = int(_minutes_match[0]) * 3600 if _minutes_match else 3600
+else:
+    _total_seconds = int(_minutes_match[0]) * 60 if _minutes_match else 600
+
+print(f"[Aero Engine] Unlocking true continuous evolution loop. Execution Time Allocation: {_total_seconds} seconds.")
+# ------------------------------------------------------------
+
 """
 Autonomous, Test-Gated Optimization Pass
 ========================================
