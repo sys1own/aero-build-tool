@@ -1,0 +1,9 @@
+{
+  "PUSH_STRING": 3,
+  "CALL": 3,
+  "STORE": 2,
+  "LOAD": 2,
+  "SUB": 1,
+  "POP": 1,
+  "HALT": 1
+}
