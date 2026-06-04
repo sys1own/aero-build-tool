@@ -93,6 +93,37 @@ class AeroVM:
             op_name = op.name if hasattr(op, 'name') else str(op)
             self._opcode_profile_counts[op_name] = self._opcode_profile_counts.get(op_name, 0) + 1
 
+            if op == OpCode.CALL_DIRECT:
+
+
+                # Optimized macro-dispatch execution path
+
+
+                callee = self._pop()
+
+
+                argc = instr[1]
+
+
+                args = [self._pop() for _ in range(argc)]
+
+
+                args.reverse()
+
+
+                if isinstance(callee, str) and callee in self.native_functions:
+
+
+                    result = self.native_functions[callee](args)
+
+
+                    self._push(result if result is not None else 0)
+
+
+                continue
+
+
+
             if op == OpCode.PUSH_INT:
                 self._push(instr[1])
             elif op == OpCode.PUSH_FLOAT:

@@ -60,6 +60,8 @@ class OpCode(Enum):
     RETURN = auto()
     POP = auto()
     HALT = auto()
+    # --- OPTIMIZED MACRO OPCODES ---
+    CALL_DIRECT = auto()
 
 
 _BINARY_OPS = {
