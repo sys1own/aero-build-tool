@@ -15,21 +15,21 @@
     "false"
   ],
   "operators": [
-    "==",
-    "<=",
-    "||",
     "&&",
     ">=",
+    "<=",
     "!=",
+    "==",
+    "||",
     "=",
-    "+",
     "*",
-    "<",
+    "+",
     "-",
     "%",
-    "!",
     ">",
-    "/"
+    "/",
+    "!",
+    "<"
   ],
   "punctuation": [
     "(",
@@ -40,20 +40,20 @@
     ";"
   ],
   "preference_levels": {
-    "<=": 8,
-    "==": 10,
-    "!=": 5,
-    ">=": 6,
-    "&&": 7,
-    "||": 7,
-    "+": 10,
-    "=": 34,
+    "<=": 5,
+    "==": 0,
+    "!=": 3,
+    ">=": 7,
+    "&&": 9,
+    "||": 0,
+    "+": 14,
+    "=": 30,
     "-": 9,
-    "*": 10,
-    "/": 2,
-    "%": 7,
-    "<": 9,
-    ">": 2,
+    "*": 18,
+    "/": 4,
+    "%": 6,
+    "<": 0,
+    ">": 5,
     "!": 3
   },
   "custom_errors": {
@@ -63,7 +63,7 @@
     "~": "Unexpected character '~' - not a valid token",
     "`": "Unexpected character '`' - not a valid token"
   },
-  "_evolution_epoch_timestamp": 1780569949139,
-  "_evolution_iteration_round": 22,
+  "_evolution_epoch_timestamp": 1780569956074,
+  "_evolution_iteration_round": 23,
   "_evolution_convergence_bypass": true
 }
